@@ -3,6 +3,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Telink Flasher</title>
 <script type="text/javascript" src="./core.js"></script>
+<style>
+  .hidden {
+    display: none;
+  }
+  .tasmota {
+    border: 2px solid green;
+    padding: 10px;
+    margin: 10px;
+  }
+
+  .tasmota2 {
+    border: 2px solid red;
+    padding: 10px;
+    margin: 10px;
+  }
+
+</style>
 </head>
 <body>
 <script>
@@ -28,6 +45,13 @@ var mi_random_key, mi_random_key_recv, mi_device_info_recv, mi_device_info_send,
 //Activation values
 var keypair, is_activated, own_public_key, device_public_key, shared_key, derived_key, mi_write_did;
 var device_new_id = "00626c742e332e31323976" + makeRandomID(6) + "415443";
+
+// Tasmota variables
+var mac = ''; // mac against which we are making the request for a key
+var macstr = ''; // mac against which we are making the request for a key
+var keyscallback = ''; // callback address for this Tasmota.
+var isTasmotaCall = false;
+
 
 function resetVariables() {
     busy = false;
@@ -85,11 +109,12 @@ function connect() {
     addLog("Searching for devices");
     connectTrys = 0;
     navigator.bluetooth.requestDevice(deviceOptions).then(device => {
+        console.log(device);
         bluetoothDevice = device;
-        catchAdvertisement(device);
         bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
-        addLog("Connecting to: " + bluetoothDevice.name);
-        doConnect();
+        catchAdvertisement(device);
+        //addLog("Connecting to: " + bluetoothDevice.name);
+        //doConnect(); - done in catchAdvertisement only if we can't catch adverts
     }).catch(handleError);
 }
 
@@ -114,6 +139,17 @@ function catchAdvertisement(device) {
     })
     abortController.abort();
   }, { once: true });
+
+
+  if (device.watchAdvertisements){
+    console.log('Watching advertisements from "' + device.name + '"...');
+    device.watchAdvertisements({ signal: abortController.signal })
+    .catch(error => {
+      console.log('Argh! ' + error);
+    });  
+  } else {
+    doConnect();
+  }
 }
 
 
@@ -317,6 +353,9 @@ function miAuthorization() {
                     });
                     addLog("Connected");
                     setStatus("Connected, you can now Do the Activation to either get the Token or flash a new Firmware")
+                    
+                    document.querySelector("#waitconnect").classList.add('hidden');
+                    document.querySelector("#tasactivation").classList.remove('hidden');
                 });
             });
         }).catch(handleError);
@@ -373,9 +412,10 @@ function reConnect() {
 function startDFU() {
     addLog("Start DFU");
     if ((miConnected==true) && (is_logged_in==false)){
-		addLog("Please do the Activation first");
-		return;
-	}	
+      addLog("Please do the Activation first");
+      return;
+    }	
+    document.querySelector("#updating").classList.remove('hidden');
     updateBegin();
 }
 
@@ -493,7 +533,31 @@ function hex2ascii(hexx) {
     return str;
 }
 
+
 window.onload = function() {
+
+    const urlParams = new URLSearchParams(window.location.search);
+    mac = urlParams.get('mac');
+    keyscallback = urlParams.get('cb');
+
+    if (mac){
+      isTasmotaCall = true;
+      macstr = mac.slice(0,2)+':'+mac.slice(2,4)+':'+mac.slice(4,6)+':'+mac.slice(6,8)+':'+mac.slice(8,10)+':'+mac.slice(10,12);
+      document.querySelector("#mac").innerHTML = macstr;
+      document.querySelector("#macstr").innerHTML = macstr;
+      document.querySelector("#cb").innerHTML = keyscallback;
+      document.title = 'MI Device '+macstr;
+      document.querySelector("#tasmota").classList.remove('hidden');
+      document.querySelector("#tasmota2").classList.remove('hidden');
+      document.querySelector("#nontasmota").classList.add('hidden');
+    } else {
+      document.querySelector("#tasmota").classList.add('hidden');
+      document.querySelector("#tasmota2").classList.add('hidden');
+      document.querySelector("#nontasmota").classList.remove('hidden');
+    }
+    //<p id="tasrequest">Tas Request mac:<span id="mac"></span> callback:<span id="cb"></span></p>
+
+
     document.querySelector("#file").addEventListener("change", function() {
         var reader = new FileReader();
         reader.onload = function() {
@@ -514,6 +578,8 @@ window.onload = function() {
             }
             blockCount = firmwareArray.length / 32;
             addLog("Count: " + blockCount);
+            document.querySelector("#waitstartflashing").classList.add('hidden');
+            document.querySelector("#startflashing").classList.remove('hidden');
         }
         if (this.files[0] != null)
             reader.readAsArrayBuffer(this.files[0]);
@@ -588,6 +654,9 @@ function sendLastOTA() {
     otaCharSend(data).then(function(character) {
         addLog("Update done after " + (new Date().getTime() - startTime) / 1000 + " seconds");
         setStatus("Update done after " + (new Date().getTime() - startTime) / 1000 + " seconds");
+        document.querySelector("#updating").classList.add('hidden');
+        document.querySelector("#updatedonetxt").classList.remove('hidden');
+        document.querySelector("#nontasmota").classList.remove('hidden');
     }).catch(function(err) {
         updateFail(err);
     });
@@ -664,11 +733,19 @@ function makeSharedKey() {
 function deriveTheKey() {
     var derived_key = sjcl.codec.hex.fromBits(sjcl.misc.hkdf(sjcl.codec.hex.toBits(shared_key), 8 * 64, null, "mible-setup-info", sjcl.hash["sha256"]));
     document.getElementById("mi_token").value = derived_key.substring(0, 24);
-    document.getElementById("mi_bind_key").value = derived_key.substring(24, 56);
+    let bindkey = derived_key.substring(24, 56);
+    document.getElementById("mi_bind_key").value = bindkey; 
     var mi_bind_A = derived_key.substring(56, 88);
     mi_write_did = sjcl.codec.hex.fromBits(sjcl.mode.ccm.encrypt(new sjcl.cipher.aes(sjcl.codec.hex.toBits(mi_bind_A)), sjcl.codec.hex.toBits(device_new_id), sjcl.codec.hex.toBits("101112131415161718191A1B"), sjcl.codec.hex.toBits("6465764944"), 32));
     mainCharSend("000000000200", enc_19);
+    if (isTasmotaCall){
+      document.querySelector("#tasmotaapplylink").href = keyscallback +'?mac='+mac.toUpperCase()+'&key='+bindkey.toUpperCase();
+      document.querySelector("#waitactivate").classList.add('hidden');
+      document.querySelector("#tasmotaapply").classList.remove('hidden');
+      document.querySelector("#taskey").innerHTML = "MI32Keys "+mac.toUpperCase()+"="+bindkey.toUpperCase();
+    }
 }
+
 
 function do_login_generate() {
     var salt = hexToBytes(mi_random_key + mi_random_key_recv);
@@ -681,6 +758,55 @@ function do_login_generate() {
 </script>
 <big><big>Telink Flasher for Mi Thermostat</big></big><br>
 Copyright: Aaron Christophel / Atc1441  <a href="https://atcnetz.de">https://ATCnetz.de</a><br>
+
+<div id="tasmota" class="hidden tasmota">
+  <h2>Be sure to select the device with the requested MAC address:<span id=macstr></span></h2><br/>
+  Tas Request mac:<span id="mac"></span> callback:<span id="cb"></span><br/>
+  <h3>Instructions to get a key for original MI firmware:</h3>
+  <p>1/ Click connect, and select the device with the matching MAC address<br/>
+  Notes:<br/>
+  Currently we can't read the MAC address here to confirm you selected the right device.<br/>
+  If you have only one device, Chrome may not show you the MAC address.<br/>
+  You may need to wait for a minute or two for all devices to appear.</p>
+  <button type="button" onclick="connect();">Connect</button>
+  <p>2/ Wait for 'Do Activation' to appear, then click it.<br/>
+    <span id="waitconnect">Please wait</span></p>
+  <button id="tasactivation" class="hidden" type="button" onclick="sendRegister();">Do Activation</button>
+  <p>3/ Wait for a link to appear here:<br/>
+    <span id="waitactivate">Please wait</span>
+    <span id="tasmotaapply" class="hidden"><a id="tasmotaapplylink" target="_blank">Click to directly apply this key to Tasmota via a callback url.</a><br/>
+      Cmnd for boot would be:<br/><h3 id="taskey"></h3>
+    </span></p>
+  <p>4/ Note the presented Tasmota command.<br/>
+    This should be added to a rule or other boot mechanism to add the key at every Tasmota restart<br/>
+  You can combine setting of keys using 'MI32Keys mac=key mac2=key2 mac3=key3'</p>
+  <p>5/ Close this tab</p>
+    <br/>
+</div>
+<div id="tasmota2" class="hidden tasmota2">
+  <h2>Be sure to select the device with the requested MAC address:<span id=macstr></span></h2><br/>
+  <h3>Instructions to install custom firmware:</h3>
+  <p>1/ Click connect, and select the device with the matching MAC address<br/>
+    Notes:<br/>
+    Currently we can't read the MAC address here to confirm you selected the right device.<br/>
+    If you have only one device, Chrome may not show you the MAC address.<br/>
+    You may need to wait for a minute or two for all devices to appear.</p>
+  <button type="button" onclick="connect();">Connect</button>
+  <p>2/ Click on Choose file, and select your custom firmware file, e.g. "ATC_Thermometer.bin"<br/>
+    Select Firmware: <input type="file" accept=".bin" id="file"/>
+  </p>
+  <p>3/ Click 'Start Flashing'</p>
+  <span id="waitstartflashing">Please wait</span></p>
+  <span id="updatedonetxt" class="hidden">Flashing Complete</span></p>
+  <span id="updating" class="hidden">Flashing .....</span></p>
+  <button id="startflashing" class="hidden" type="button" onclick="startDFU();">Start Flashing</button>
+  <p>4/ Configure the custom firmware<br/>
+    Reconnect?<br/>
+    Use the features below to configure the new firmware.
+  </p>
+</div>
+
+<div id="nontasmota">
 <a href="https://youtu.be/NXKzFG61lNs">Video Manual</a> <a href="https://github.com/atc1441/ATC_MiThermometer">Custom firmware repo</a><br><br>
   <button type="button" onclick="connect();">Connect</button>
   <button type="button" onclick="reConnect();">Reconnect</button><br>
@@ -746,6 +872,7 @@ Please select a .bin file you want to flash to a Telink BLE device.<br><br>
   This can be used to get instant advertising if the sensor data changes to fast. Temp divided by 10
   <br>
   <hr>
+</div>
  <div id="log">Log:<br></div>
  <div id="result"></div>
 </body></html>
