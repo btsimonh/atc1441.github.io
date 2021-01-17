@@ -757,8 +757,10 @@ function do_login_generate() {
 }
 </script>
 <big><big>Telink Flasher for Mi Thermostat</big></big><br>
-Copyright: Aaron Christophel / Atc1441  <a href="https://atcnetz.de">https://ATCnetz.de</a><br>
-
+Copyright: Aaron Christophel / Atc1441  <a href="https://atcnetz.de">https://ATCnetz.de</a><br/>
+<a href="https://atc1441.github.io/TelinkFlasher.html">Original TeleLink Flasher</a><br/>
+Adapted by Simon Hailes / btsimonh <a href="https://github.com/btsimonh/atc1441.github.io">(github)</a><br/>
+<a href="https://btsimonh.github.io/atc1441.github.io/TelinkFlasherTasmota.html">Raw page (without Tamsmota query string - e.g. for ATC firmware options)</a><br/>
 <div id="tasmota" class="hidden tasmota">
   <h2>Be sure to select the device with the requested MAC address:<span id=macstr></span></h2><br/>
   Tas Request mac:<span id="mac"></span> callback:<span id="cb"></span><br/>
@@ -767,7 +769,8 @@ Copyright: Aaron Christophel / Atc1441  <a href="https://atcnetz.de">https://ATC
   Notes:<br/>
   Currently we can't read the MAC address here to confirm you selected the right device.<br/>
   If you have only one device, Chrome may not show you the MAC address.<br/>
-  You may need to wait for a minute or two for all devices to appear.</p>
+  You may need to wait for a minute or two for all devices to appear.<br/>
+  Every time you get a key for a device, the key changes, so you would need new startup commands in Tasmota</p>
   <button type="button" onclick="connect();">Connect</button>
   <p>2/ Wait for 'Do Activation' to appear, then click it.<br/>
     <span id="waitconnect">Please wait</span></p>
